@@ -24,6 +24,7 @@ final class ControlPanel: NSObject, NSWindowDelegate {
     private var fanRows: [(name: NSTextField, rpm: NSTextField, slider: NSSlider)] = []
     private let syncButton = NSButton(checkboxWithTitle: "同步兩顆風扇", target: nil, action: nil)
     private let autoCheckbox = NSButton(checkboxWithTitle: "80°C 自動增壓（最高 6,000 RPM）", target: nil, action: nil)
+    private let loginCheckbox = NSButton(checkboxWithTitle: "登入時自動啟動 FanLite", target: nil, action: nil)
     private let refreshPopup = NSPopUpButton(frame: .zero, pullsDown: false)
     private let intervalValues: [Double] = [5, 10, 30, 60]
     private var latest: Reading?
@@ -31,6 +32,7 @@ final class ControlPanel: NSObject, NSWindowDelegate {
     private let onProfile: (String) -> Void
     private let onManual: (Int?, Int) -> Void
     private let onAuto: (Bool) -> Void
+    private let onLoginItem: (Bool) -> Void
     private let onInterval: (Double) -> Void
     private let onClose: () -> Void
 
@@ -38,16 +40,18 @@ final class ControlPanel: NSObject, NSWindowDelegate {
         onProfile: @escaping (String) -> Void,
         onManual: @escaping (Int?, Int) -> Void,
         onAuto: @escaping (Bool) -> Void,
+        onLoginItem: @escaping (Bool) -> Void,
         onInterval: @escaping (Double) -> Void,
         onClose: @escaping () -> Void
     ) {
         self.onProfile = onProfile
         self.onManual = onManual
         self.onAuto = onAuto
+        self.onLoginItem = onLoginItem
         self.onInterval = onInterval
         self.onClose = onClose
         window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 440, height: 530),
+            contentRect: NSRect(x: 0, y: 0, width: 440, height: 566),
             styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered,
             defer: false
@@ -65,9 +69,10 @@ final class ControlPanel: NSObject, NSWindowDelegate {
         window.makeKeyAndOrderFront(nil)
     }
 
-    func update(reading: Reading, interval: Double, autoEnabled: Bool) {
+    func update(reading: Reading, interval: Double, autoEnabled: Bool, launchAtLoginEnabled: Bool) {
         latest = reading
         autoCheckbox.state = autoEnabled ? .on : .off
+        loginCheckbox.state = launchAtLoginEnabled ? .on : .off
         let temp = reading.cpuTemp.map { String(format: "%.1f°C", $0) } ?? "--"
         tempLabel.stringValue = temp
 
@@ -156,6 +161,11 @@ final class ControlPanel: NSObject, NSWindowDelegate {
         autoCheckbox.action = #selector(autoChanged)
         views.append(autoCheckbox)
 
+        loginCheckbox.state = .off
+        loginCheckbox.target = self
+        loginCheckbox.action = #selector(loginItemChanged)
+        views.append(loginCheckbox)
+
         let auto = makeButton("系統自動", action: #selector(profileAuto))
         let daily = makeButton("日常 3000", action: #selector(profileDaily))
         let quiet = makeButton("安靜", action: #selector(profileQuiet))
@@ -239,6 +249,10 @@ final class ControlPanel: NSObject, NSWindowDelegate {
 
     @objc private func autoChanged() {
         onAuto(autoCheckbox.state == .on)
+    }
+
+    @objc private func loginItemChanged() {
+        onLoginItem(loginCheckbox.state == .on)
     }
 
     @objc private func refreshChanged() {

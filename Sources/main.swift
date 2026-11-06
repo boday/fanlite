@@ -69,6 +69,7 @@ final class FanLiteApp: NSObject, NSApplicationDelegate {
     private let statusLine = NSMenuItem(title: "讀取中…", action: nil, keyEquivalent: "")
     private let refreshItem = NSMenuItem(title: "刷新頻率", action: nil, keyEquivalent: "")
     private let fanItem = NSMenuItem(title: "風扇控制（smctl）", action: nil, keyEquivalent: "")
+    private let launchAtLoginItem = NSMenuItem(title: "開機自動啟動", action: nil, keyEquivalent: "")
     private var timer: Timer?
     private var activity: NSObjectProtocol?
     private let openPanelOnLaunch = CommandLine.arguments.contains("--panel")
@@ -76,11 +77,14 @@ final class FanLiteApp: NSObject, NSApplicationDelegate {
         onProfile: { [weak self] profile in self?.applyProfile(profile) },
         onManual: { [weak self] index, rpm in self?.applyManual(index: index, rpm: rpm) },
         onAuto: { [weak self] enabled in self?.setAutoEnabled(enabled) },
+        onLoginItem: { [weak self] enabled in self?.setLaunchAtLogin(enabled) },
         onInterval: { [weak self] value in self?.setIntervalValue(value) },
         onClose: { NSApp.setActivationPolicy(.accessory) }
     )
     private var policy = ThermalPolicy()
     private var lastAutoTarget: Int?
+    private let thermalQueue = DispatchQueue(label: "io.github.boday.fanlite.thermal")
+    private var thermalTimer: DispatchSourceTimer?
     private lazy var helperInstalled = FileManager.default.fileExists(
         atPath: "/Library/PrivilegedHelperTools/one.leaper.smctl.daemon"
     )
@@ -111,6 +115,7 @@ final class FanLiteApp: NSObject, NSApplicationDelegate {
         buildMenu()
         refresh()
         scheduleTimer()
+        startThermalMonitoring()
         if openPanelOnLaunch {
             openPanel()
         }
@@ -147,6 +152,11 @@ final class FanLiteApp: NSObject, NSApplicationDelegate {
         }
         fanItem.submenu = fanMenu
         menu.addItem(fanItem)
+
+        launchAtLoginItem.target = self
+        launchAtLoginItem.action = #selector(toggleLaunchAtLogin(_:))
+        launchAtLoginItem.state = LaunchAtLogin.isEnabled ? .on : .off
+        menu.addItem(launchAtLoginItem)
         menu.addItem(.separator())
 
         let quit = NSMenuItem(title: "結束 FanLite", action: #selector(quit), keyEquivalent: "q")
@@ -169,7 +179,12 @@ final class FanLiteApp: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps: true)
         controlPanel.show()
         if let reading = currentReading {
-            controlPanel.update(reading: reading, interval: interval, autoEnabled: autoEnabled)
+            controlPanel.update(
+                reading: reading,
+                interval: interval,
+                autoEnabled: autoEnabled,
+                launchAtLoginEnabled: LaunchAtLogin.isEnabled
+            )
         }
     }
 
@@ -187,15 +202,39 @@ final class FanLiteApp: NSObject, NSApplicationDelegate {
         statusItem.button?.title = "🌡 \(temp) | \(rpm.isEmpty ? "--" : rpm) RPM"
         let power = reading.packagePower.map { String(format: "%.1fW", $0) } ?? "--"
         statusLine.title = "CPU 最高 \(temp)｜風扇 \(rpm.isEmpty ? "--" : rpm) RPM｜封裝 \(power)"
-        controlPanel.update(reading: reading, interval: interval, autoEnabled: autoEnabled)
+        controlPanel.update(
+            reading: reading,
+            interval: interval,
+            autoEnabled: autoEnabled,
+            launchAtLoginEnabled: LaunchAtLogin.isEnabled
+        )
         writeLog("cpu=\(temp) fans=\(rpm.isEmpty ? "--" : rpm) package=\(power)")
+    }
 
-        if autoEnabled, let temperature = reading.cpuTemp {
-            let target = policy.target(for: temperature)
-            if target != lastAutoTarget {
-                lastAutoTarget = target
-                applyAutoTarget(target, fans: reading.fans)
-            }
+    /// 溫控判斷與 UI 刷新脫鉤：UI 預設 10 秒，但熱控制每 2 秒取樣，
+    /// 避免 80°C 的短暫尖峰被 10 秒輪詢漏掉。
+    private func startThermalMonitoring() {
+        thermalTimer?.cancel()
+        let timer = DispatchSource.makeTimerSource(queue: thermalQueue)
+        timer.schedule(deadline: .now() + 1, repeating: 2.0)
+        timer.setEventHandler { [weak self] in self?.thermalTick() }
+        timer.resume()
+        thermalTimer = timer
+    }
+
+    private func thermalTick() {
+        guard autoEnabled,
+              let smctl = Reader.smctlURL(),
+              let reading = Reader.read(smctl: smctl),
+              let temperature = reading.cpuTemp else { return }
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.autoEnabled else { return }
+            let target = self.policy.target(for: temperature)
+            guard target != self.lastAutoTarget else { return }
+            self.lastAutoTarget = target
+            self.writeLog("thermal=\(String(format: "%.1f", temperature))C target=\(target)")
+            self.applyAutoTarget(target, fans: reading.fans)
         }
     }
 
@@ -250,6 +289,25 @@ final class FanLiteApp: NSObject, NSApplicationDelegate {
         autoEnabled = enabled
         policy = ThermalPolicy()
         lastAutoTarget = nil
+        refresh()
+        if enabled {
+            thermalQueue.async { [weak self] in self?.thermalTick() }
+        }
+    }
+
+    @objc private func toggleLaunchAtLogin(_ sender: NSMenuItem) {
+        setLaunchAtLogin(sender.state != .on)
+    }
+
+    private func setLaunchAtLogin(_ enabled: Bool) {
+        do {
+            try LaunchAtLogin.setEnabled(enabled)
+            launchAtLoginItem.state = enabled ? .on : .off
+            writeLog("login-item=\(enabled ? "enabled" : "disabled")")
+        } catch {
+            launchAtLoginItem.state = LaunchAtLogin.isEnabled ? .on : .off
+            showError(title: "無法設定開機自動啟動", message: error.localizedDescription)
+        }
         refresh()
     }
 
@@ -313,10 +371,39 @@ final class FanLiteApp: NSObject, NSApplicationDelegate {
 
     @objc private func quit() {
         timer?.invalidate()
+        thermalTimer?.cancel()
         if let activity {
             ProcessInfo.processInfo.endActivity(activity)
         }
         NSApp.terminate(nil)
+    }
+}
+
+if CommandLine.arguments.contains("--login-item-status") {
+    print(LaunchAtLogin.isEnabled ? "enabled" : "disabled")
+    print(LaunchAtLogin.plistURL.path)
+    exit(0)
+}
+
+if CommandLine.arguments.contains("--enable-login-item") {
+    do {
+        try LaunchAtLogin.setEnabled(true)
+        print("enabled")
+        exit(0)
+    } catch {
+        fputs("enable login item failed: \(error.localizedDescription)\n", stderr)
+        exit(1)
+    }
+}
+
+if CommandLine.arguments.contains("--disable-login-item") {
+    do {
+        try LaunchAtLogin.setEnabled(false)
+        print("disabled")
+        exit(0)
+    } catch {
+        fputs("disable login item failed: \(error.localizedDescription)\n", stderr)
+        exit(1)
     }
 }
 
