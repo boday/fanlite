@@ -1,6 +1,6 @@
 # FanLite
 
-[![Version](https://img.shields.io/badge/version-0.1.0-blue)]()
+[![Version](https://img.shields.io/badge/version-0.1.1-blue)]()
 [![Platform](https://img.shields.io/badge/macOS-14%2B%20Apple%20Silicon-black)]()
 [![License](https://img.shields.io/badge/license-MIT-green)]()
 
@@ -27,7 +27,7 @@
 ## 安裝 Release
 
 1. 到 [Releases](https://github.com/boday/fanlite/releases) 下載
-   `FanLite-v0.1.0-macos-arm64.zip`。
+   `FanLite-v0.1.1-macos-arm64.zip`。
 2. 解壓縮後把 `FanLite.app` 拖到 `~/Applications` 或 `/Applications`。
 3. 開啟 FanLite，選單列會出現 `🌡 68°C | 5772/6241 RPM`。
 

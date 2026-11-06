@@ -2,6 +2,13 @@
 
 本專案遵循 [Semantic Versioning](https://semver.org/lang/zh-TW/)。
 
+## [0.1.1] - 2026-11-06
+
+### Fixed
+
+- 選單列 App 加上 `NSAppSleepDisabled`，避免背景 App Nap 延遲刷新
+- 本機刷新頻率重設為 10 秒，確保預設行為一致
+
 ## [0.1.0] - 2026-11-06
 
 ### Added
@@ -21,3 +28,4 @@
 - 風扇控制需安裝 `smctl` root helper
 
 [0.1.0]: https://github.com/boday/fanlite/releases/tag/v0.1.0
+[0.1.1]: https://github.com/boday/fanlite/releases/tag/v0.1.1
