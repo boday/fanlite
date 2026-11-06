@@ -11,5 +11,5 @@ VERSION="$VERSION" DIST="$DIST" "$ROOT/scripts/build.sh"
 
 rm -f "$ZIP" "$ZIP.sha256"
 ditto -c -k --norsrc --keepParent "$APP" "$ZIP"
-shasum -a 256 "$ZIP" | tee "$ZIP.sha256"
+(cd "$DIST" && shasum -a 256 "$(basename "$ZIP")" | tee "$(basename "$ZIP").sha256")
 echo "package: $ZIP"
