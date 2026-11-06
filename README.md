@@ -2,7 +2,7 @@
 
 <p align="center"><img src="assets/AppIcon-1024.png" width="140" alt="FanLite icon"></p>
 
-[![Version](https://img.shields.io/badge/version-0.2.0-blue)]()
+[![Version](https://img.shields.io/badge/version-0.3.0-blue)]()
 [![Platform](https://img.shields.io/badge/macOS-14%2B%20Apple%20Silicon-black)]()
 [![License](https://img.shields.io/badge/license-MIT-green)]()
 
@@ -17,6 +17,7 @@
 - 控制面板：可拖拉的雙風扇 RPM 滑桿、同步兩顆風扇
 - 單獨控制 Fan 0 / Fan 1，或同步控制兩顆
 - 風扇模式：`auto`（macOS 控制）、`quiet`、`full`
+- **80°C 自動增壓**：80°C → 4,500 RPM、88°C → 5,500 RPM、90°C → 6,000 RPM（含回退滯後）
 - 刷新頻率：**5 / 10 / 30 / 60 秒**，預設 **10 秒**
 - 讀取 SMC 不需要 root、不需要常駐 daemon
 - 使用 MIT 授權、Apple 公證的 [`smctl`](https://github.com/leaperone/smctl) 作為底層
@@ -31,7 +32,7 @@
 ## 安裝 Release
 
 1. 到 [Releases](https://github.com/boday/fanlite/releases) 下載
-   `FanLite-v0.2.0-macos-arm64.dmg`。
+   `FanLite-v0.3.0-macos-arm64.dmg`。
 2. 打開 DMG，把 `FanLite.app` 拖到 `Applications`。
 3. 開啟 FanLite，選單列會出現 `🌡 68°C | 3000/3000 RPM`。
 4. 點選單列的 FanLite →「開啟控制面板…」，即可用滑桿調整兩顆風扇。
@@ -55,6 +56,7 @@ open "$HOME/Applications/FanLite.app"
 
 ```bash
 ./scripts/test.sh
+"$HOME/Applications/FanLite.app/Contents/MacOS/FanLite" --policy-test
 "$HOME/Applications/FanLite.app/Contents/MacOS/FanLite" --once
 ```
 
@@ -96,8 +98,9 @@ sudo "$HOME/Applications/FanLite.app/Contents/Resources/bin/smctl" daemon instal
 控制面板中的操作：
 
 - **Fan 0 / Fan 1 滑桿**：放開滑桿即套用該風扇 RPM
+- **80°C 自動增壓**：勾選後依溫度自動調整；預設在有 helper 時開啟
 - **同步兩顆風扇**：勾選後拖動任一滑桿會同時設定兩顆
-- **自動**：交還 macOS 控制（可能回到 0 RPM）
+- **系統自動**：交還 macOS 控制（可能回到 0 RPM）
 - **安靜 / 全速**：使用 `smctl` 內建 profile
 - **刷新頻率**：5 / 10 / 30 / 60 秒
 

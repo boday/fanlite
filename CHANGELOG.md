@@ -2,6 +2,25 @@
 
 本專案遵循 [Semantic Versioning](https://semver.org/lang/zh-TW/)。
 
+## [0.3.0] - 2026-11-06
+
+### Added
+
+- **80°C 自動增壓**：依 CPU 熱點自動調整雙風扇
+  - `< 80°C`：3,000 RPM
+  - `>= 80°C`：4,500 RPM
+  - `>= 88°C`：5,500 RPM
+  - `>= 90°C`：6,000 RPM（依各風扇上限夾住）
+- 滯後回退：86°C 以下離開全速、84°C 以下離開高溫、76°C 以下回日常
+- 控制面板可開關自動增壓
+- 新增 `--policy-test` 邊界測試
+
+### Verified
+
+- 邊界測試 14/14 PASS
+- 真實負載：81.7°C 時自動切到 4,500 RPM
+- 降溫後 75°C 自動回到 3,000 RPM
+
 ## [0.2.0] - 2026-11-06
 
 ### Added
@@ -41,3 +60,5 @@
 
 [0.1.0]: https://github.com/boday/fanlite/releases/tag/v0.1.0
 [0.1.1]: https://github.com/boday/fanlite/releases/tag/v0.1.1
+[0.2.0]: https://github.com/boday/fanlite/releases/tag/v0.2.0
+[0.3.0]: https://github.com/boday/fanlite/releases/tag/v0.3.0

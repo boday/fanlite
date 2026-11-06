@@ -23,27 +23,31 @@ final class ControlPanel: NSObject, NSWindowDelegate {
     private let profileLabel = NSTextField(labelWithString: "風扇模式：--")
     private var fanRows: [(name: NSTextField, rpm: NSTextField, slider: NSSlider)] = []
     private let syncButton = NSButton(checkboxWithTitle: "同步兩顆風扇", target: nil, action: nil)
+    private let autoCheckbox = NSButton(checkboxWithTitle: "80°C 自動增壓（最高 6,000 RPM）", target: nil, action: nil)
     private let refreshPopup = NSPopUpButton(frame: .zero, pullsDown: false)
     private let intervalValues: [Double] = [5, 10, 30, 60]
     private var latest: Reading?
 
     private let onProfile: (String) -> Void
     private let onManual: (Int?, Int) -> Void
+    private let onAuto: (Bool) -> Void
     private let onInterval: (Double) -> Void
     private let onClose: () -> Void
 
     init(
         onProfile: @escaping (String) -> Void,
         onManual: @escaping (Int?, Int) -> Void,
+        onAuto: @escaping (Bool) -> Void,
         onInterval: @escaping (Double) -> Void,
         onClose: @escaping () -> Void
     ) {
         self.onProfile = onProfile
         self.onManual = onManual
+        self.onAuto = onAuto
         self.onInterval = onInterval
         self.onClose = onClose
         window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 420, height: 470),
+            contentRect: NSRect(x: 0, y: 0, width: 440, height: 530),
             styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered,
             defer: false
@@ -61,8 +65,9 @@ final class ControlPanel: NSObject, NSWindowDelegate {
         window.makeKeyAndOrderFront(nil)
     }
 
-    func update(reading: Reading, interval: Double) {
+    func update(reading: Reading, interval: Double, autoEnabled: Bool) {
         latest = reading
+        autoCheckbox.state = autoEnabled ? .on : .off
         let temp = reading.cpuTemp.map { String(format: "%.1f°C", $0) } ?? "--"
         tempLabel.stringValue = temp
 
@@ -146,7 +151,12 @@ final class ControlPanel: NSObject, NSWindowDelegate {
         syncButton.state = .off
         views.append(syncButton)
 
-        let auto = makeButton("自動", action: #selector(profileAuto))
+        autoCheckbox.state = .on
+        autoCheckbox.target = self
+        autoCheckbox.action = #selector(autoChanged)
+        views.append(autoCheckbox)
+
+        let auto = makeButton("系統自動", action: #selector(profileAuto))
         let daily = makeButton("日常 3000", action: #selector(profileDaily))
         let quiet = makeButton("安靜", action: #selector(profileQuiet))
         let full = makeButton("全速", action: #selector(profileFull))
@@ -226,6 +236,10 @@ final class ControlPanel: NSObject, NSWindowDelegate {
     @objc private func profileDaily() { onManual(nil, 3000) }
     @objc private func profileQuiet() { onProfile("quiet") }
     @objc private func profileFull() { onProfile("full") }
+
+    @objc private func autoChanged() {
+        onAuto(autoCheckbox.state == .on)
+    }
 
     @objc private func refreshChanged() {
         let index = refreshPopup.indexOfSelectedItem

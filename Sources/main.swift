@@ -75,9 +75,24 @@ final class FanLiteApp: NSObject, NSApplicationDelegate {
     private lazy var controlPanel: ControlPanel = ControlPanel(
         onProfile: { [weak self] profile in self?.applyProfile(profile) },
         onManual: { [weak self] index, rpm in self?.applyManual(index: index, rpm: rpm) },
+        onAuto: { [weak self] enabled in self?.setAutoEnabled(enabled) },
         onInterval: { [weak self] value in self?.setIntervalValue(value) },
         onClose: { NSApp.setActivationPolicy(.accessory) }
     )
+    private var policy = ThermalPolicy()
+    private var lastAutoTarget: Int?
+    private lazy var helperInstalled = FileManager.default.fileExists(
+        atPath: "/Library/PrivilegedHelperTools/one.leaper.smctl.daemon"
+    )
+    private var autoEnabled: Bool {
+        get {
+            if UserDefaults.standard.object(forKey: "autoThermal") == nil {
+                return helperInstalled
+            }
+            return UserDefaults.standard.bool(forKey: "autoThermal")
+        }
+        set { UserDefaults.standard.set(newValue, forKey: "autoThermal") }
+    }
     private var interval: Double {
         get {
             let v = UserDefaults.standard.double(forKey: "refreshInterval")
@@ -154,7 +169,7 @@ final class FanLiteApp: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps: true)
         controlPanel.show()
         if let reading = currentReading {
-            controlPanel.update(reading: reading, interval: interval)
+            controlPanel.update(reading: reading, interval: interval, autoEnabled: autoEnabled)
         }
     }
 
@@ -172,8 +187,16 @@ final class FanLiteApp: NSObject, NSApplicationDelegate {
         statusItem.button?.title = "🌡 \(temp) | \(rpm.isEmpty ? "--" : rpm) RPM"
         let power = reading.packagePower.map { String(format: "%.1fW", $0) } ?? "--"
         statusLine.title = "CPU 最高 \(temp)｜風扇 \(rpm.isEmpty ? "--" : rpm) RPM｜封裝 \(power)"
-        controlPanel.update(reading: reading, interval: interval)
+        controlPanel.update(reading: reading, interval: interval, autoEnabled: autoEnabled)
         writeLog("cpu=\(temp) fans=\(rpm.isEmpty ? "--" : rpm) package=\(power)")
+
+        if autoEnabled, let temperature = reading.cpuTemp {
+            let target = policy.target(for: temperature)
+            if target != lastAutoTarget {
+                lastAutoTarget = target
+                applyAutoTarget(target, fans: reading.fans)
+            }
+        }
     }
 
     private func writeLog(_ message: String) {
@@ -217,11 +240,34 @@ final class FanLiteApp: NSObject, NSApplicationDelegate {
     }
 
     private func applyProfile(_ profile: String) {
+        autoEnabled = false
+        lastAutoTarget = nil
         runSMCTL(["fan", "profile", profile], failureTitle: "無法切換風扇模式")
         DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in self?.refresh() }
     }
 
+    private func setAutoEnabled(_ enabled: Bool) {
+        autoEnabled = enabled
+        policy = ThermalPolicy()
+        lastAutoTarget = nil
+        refresh()
+    }
+
+    private func applyAutoTarget(_ target: Int, fans: [FanReading]) {
+        guard target > 0 else { return }
+        for fan in fans {
+            let rpm = min(target, Int(fan.maxRPM))
+            runSMCTL(
+                ["fan", "set", String(rpm), "--fan", String(fan.index)],
+                failureTitle: "自動溫控設定失敗"
+            )
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in self?.refresh() }
+    }
+
     private func applyManual(index: Int?, rpm: Int) {
+        autoEnabled = false
+        lastAutoTarget = nil
         var args = ["fan", "set", String(rpm)]
         if let index {
             args += ["--fan", String(index)]
@@ -272,6 +318,10 @@ final class FanLiteApp: NSObject, NSApplicationDelegate {
         }
         NSApp.terminate(nil)
     }
+}
+
+if CommandLine.arguments.contains("--policy-test") {
+    exit(ThermalPolicy.selfTest() ? 0 : 1)
 }
 
 if CommandLine.arguments.contains("--once") {
