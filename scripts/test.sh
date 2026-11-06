@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 APP="$ROOT/dist/FanLite.app"
 
-VERSION=0.1.1 DIST="$ROOT/dist" "$ROOT/scripts/build.sh" >/dev/null
+VERSION=0.2.0 DIST="$ROOT/dist" "$ROOT/scripts/build.sh" >/dev/null
 out="$("$APP/Contents/MacOS/FanLite" --once)"
 echo "$out"
 

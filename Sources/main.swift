@@ -1,12 +1,6 @@
 import AppKit
 import Foundation
 
-struct Reading {
-    var cpuTemp: Double?
-    var fanRPMs: [Double]
-    var packagePower: Double?
-}
-
 enum Reader {
     static func smctlURL() -> URL? {
         if let bundled = Bundle.main.resourceURL?.appendingPathComponent("bin/smctl"),
@@ -52,12 +46,21 @@ enum Reader {
         let cpu = cpuSamples.max()
 
         let fans = json["fans"] as? [[String: Any]] ?? []
-        let rpms = fans.compactMap { $0["actualRPM"] as? Double }
+        let fanReadings: [FanReading] = fans.enumerated().map { offset, item in
+            FanReading(
+                index: (item["index"] as? Int) ?? offset,
+                actualRPM: (item["actualRPM"] as? Double) ?? 0,
+                targetRPM: (item["targetRPM"] as? Double) ?? 0,
+                minRPM: (item["minimumRPM"] as? Double) ?? 0,
+                maxRPM: (item["maximumRPM"] as? Double) ?? 0,
+                mode: (item["mode"] as? String) ?? "unknown"
+            )
+        }
 
         let powerItems = json["power"] as? [[String: Any]] ?? []
         let packagePower = powerItems.first { ($0["key"] as? String) == "PDTR" }?["value"] as? Double
 
-        return Reading(cpuTemp: cpu, fanRPMs: rpms, packagePower: packagePower)
+        return Reading(cpuTemp: cpu, fans: fanReadings, packagePower: packagePower)
     }
 }
 
@@ -68,6 +71,13 @@ final class FanLiteApp: NSObject, NSApplicationDelegate {
     private let fanItem = NSMenuItem(title: "風扇控制（smctl）", action: nil, keyEquivalent: "")
     private var timer: Timer?
     private var activity: NSObjectProtocol?
+    private let openPanelOnLaunch = CommandLine.arguments.contains("--panel")
+    private lazy var controlPanel: ControlPanel = ControlPanel(
+        onProfile: { [weak self] profile in self?.applyProfile(profile) },
+        onManual: { [weak self] index, rpm in self?.applyManual(index: index, rpm: rpm) },
+        onInterval: { [weak self] value in self?.setIntervalValue(value) },
+        onClose: { NSApp.setActivationPolicy(.accessory) }
+    )
     private var interval: Double {
         get {
             let v = UserDefaults.standard.double(forKey: "refreshInterval")
@@ -86,12 +96,20 @@ final class FanLiteApp: NSObject, NSApplicationDelegate {
         buildMenu()
         refresh()
         scheduleTimer()
+        if openPanelOnLaunch {
+            openPanel()
+        }
     }
 
     private func buildMenu() {
         let menu = NSMenu()
         statusLine.isEnabled = false
         menu.addItem(statusLine)
+        menu.addItem(.separator())
+
+        let open = NSMenuItem(title: "開啟控制面板…", action: #selector(openPanel), keyEquivalent: ",")
+        open.target = self
+        menu.addItem(open)
         menu.addItem(.separator())
 
         let refreshMenu = NSMenu()
@@ -131,17 +149,30 @@ final class FanLiteApp: NSObject, NSApplicationDelegate {
 
     @objc private func tick() { refresh() }
 
+    @objc private func openPanel() {
+        NSApp.setActivationPolicy(.regular)
+        NSApp.activate(ignoringOtherApps: true)
+        controlPanel.show()
+        if let reading = currentReading {
+            controlPanel.update(reading: reading, interval: interval)
+        }
+    }
+
+    private var currentReading: Reading?
+
     private func refresh() {
         guard let smctl = Reader.smctlURL(), let reading = Reader.read(smctl: smctl) else {
             statusItem.button?.title = "🌡 讀取失敗"
             statusLine.title = "無法讀取 smctl sensors --json"
             return
         }
+        currentReading = reading
         let temp = reading.cpuTemp.map { String(format: "%.0f°C", $0) } ?? "--"
-        let rpm = reading.fanRPMs.map { String(format: "%.0f", $0) }.joined(separator: "/")
+        let rpm = reading.fans.map { String(format: "%.0f", $0.actualRPM) }.joined(separator: "/")
         statusItem.button?.title = "🌡 \(temp) | \(rpm.isEmpty ? "--" : rpm) RPM"
         let power = reading.packagePower.map { String(format: "%.1fW", $0) } ?? "--"
         statusLine.title = "CPU 最高 \(temp)｜風扇 \(rpm.isEmpty ? "--" : rpm) RPM｜封裝 \(power)"
+        controlPanel.update(reading: reading, interval: interval)
         writeLog("cpu=\(temp) fans=\(rpm.isEmpty ? "--" : rpm) package=\(power)")
     }
 
@@ -168,6 +199,10 @@ final class FanLiteApp: NSObject, NSApplicationDelegate {
 
     @objc private func setInterval(_ sender: NSMenuItem) {
         guard let value = sender.representedObject as? Double else { return }
+        setIntervalValue(value)
+    }
+
+    private func setIntervalValue(_ value: Double) {
         interval = value
         for item in (refreshItem.submenu?.items ?? []) {
             item.state = (item.representedObject as? Double) == value ? .on : .off
@@ -177,11 +212,33 @@ final class FanLiteApp: NSObject, NSApplicationDelegate {
     }
 
     @objc private func setFanProfile(_ sender: NSMenuItem) {
-        guard let profile = sender.representedObject as? String,
-              let smctl = Reader.smctlURL() else { return }
+        guard let profile = sender.representedObject as? String else { return }
+        applyProfile(profile)
+    }
+
+    private func applyProfile(_ profile: String) {
+        runSMCTL(["fan", "profile", profile], failureTitle: "無法切換風扇模式")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in self?.refresh() }
+    }
+
+    private func applyManual(index: Int?, rpm: Int) {
+        var args = ["fan", "set", String(rpm)]
+        if let index {
+            args += ["--fan", String(index)]
+        }
+        runSMCTL(args, failureTitle: "無法設定風扇轉速")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in self?.refresh() }
+    }
+
+    @discardableResult
+    private func runSMCTL(_ arguments: [String], failureTitle: String) -> Bool {
+        guard let smctl = Reader.smctlURL() else {
+            showError(title: failureTitle, message: "找不到 smctl")
+            return false
+        }
         let process = Process()
         process.executableURL = smctl
-        process.arguments = ["fan", "profile", profile]
+        process.arguments = arguments
         let err = Pipe()
         process.standardError = err
         process.standardOutput = Pipe()
@@ -191,18 +248,21 @@ final class FanLiteApp: NSObject, NSApplicationDelegate {
             if process.terminationStatus != 0 {
                 let data = err.fileHandleForReading.readDataToEndOfFile()
                 let message = String(data: data, encoding: .utf8) ?? "未知錯誤"
-                let alert = NSAlert()
-                alert.messageText = "無法切換風扇模式"
-                alert.informativeText = message + "\n\n需要先安裝 smctl 的 root helper：\nsudo \(smctl.path) daemon install"
-                alert.runModal()
+                showError(title: failureTitle, message: message + "\n\n需要先安裝 smctl helper：\nsudo \(smctl.path) daemon install")
+                return false
             }
+            return true
         } catch {
-            let alert = NSAlert()
-            alert.messageText = "無法執行 smctl"
-            alert.informativeText = error.localizedDescription
-            alert.runModal()
+            showError(title: failureTitle, message: error.localizedDescription)
+            return false
         }
-        refresh()
+    }
+
+    private func showError(title: String, message: String) {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = message
+        alert.runModal()
     }
 
     @objc private func quit() {
@@ -220,7 +280,7 @@ if CommandLine.arguments.contains("--once") {
         exit(1)
     }
     let temp = r.cpuTemp.map { String(format: "%.1f", $0) } ?? "n/a"
-    let fans = r.fanRPMs.map { String(format: "%.0f", $0) }.joined(separator: "/")
+    let fans = r.fans.map { String(format: "%.0f", $0.actualRPM) }.joined(separator: "/")
     let power = r.packagePower.map { String(format: "%.1f", $0) } ?? "n/a"
     print("cpu_max=\(temp)C fans=\(fans)RPM package=\(power)W")
     exit(0)

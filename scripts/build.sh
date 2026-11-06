@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-VERSION="${VERSION:-0.1.1}"
+VERSION="${VERSION:-0.2.0}"
 DIST="${DIST:-$ROOT/dist}"
 APP="$DIST/FanLite.app"
 
@@ -22,6 +22,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>CFBundleIdentifier</key><string>io.github.boday.fanlite</string>
     <key>CFBundleName</key><string>FanLite</string>
     <key>CFBundleDisplayName</key><string>FanLite</string>
+    <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleShortVersionString</key><string>${VERSION}</string>
     <key>CFBundleVersion</key><string>${VERSION}</string>
@@ -34,12 +35,13 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 PLIST
 
 swiftc -O -swift-version 5 -framework AppKit \
-  "$ROOT/Sources/main.swift" \
+  "$ROOT/Sources/"*.swift \
   -o "$APP/Contents/MacOS/FanLite"
 
 cp "$ROOT/bin/smctl" "$APP/Contents/Resources/bin/smctl"
 cp "$ROOT/bin/smctld" "$APP/Contents/Resources/bin/smctld"
 cp "$ROOT/bin/LICENSE" "$APP/Contents/Resources/bin/LICENSE"
+cp "$ROOT/assets/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 chmod +x "$APP/Contents/Resources/bin/smctl" "$APP/Contents/Resources/bin/smctld"
 codesign --force --deep --sign - "$APP" >/dev/null
 

@@ -2,6 +2,18 @@
 
 本專案遵循 [Semantic Versioning](https://semver.org/lang/zh-TW/)。
 
+## [0.2.0] - 2026-11-06
+
+### Added
+
+- 控制面板視窗，可從選單開啟
+- Fan 0 / Fan 1 獨立 RPM 滑桿
+- 同步兩顆風扇選項
+- 自動 / 安靜 / 全速快速按鈕
+- DMG 拖曳安裝映像
+- App icon（風扇＋溫度計）
+- 面板內刷新頻率選擇
+
 ## [0.1.1] - 2026-11-06
 
 ### Fixed
