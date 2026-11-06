@@ -1,0 +1,8 @@
+.DS_Store
+.build/
+dist/
+bin/smctl
+bin/smctld
+bin/LICENSE
+*.zip
+*.sha256
