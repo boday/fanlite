@@ -2,7 +2,7 @@
 
 <p align="center"><img src="assets/AppIcon-1024.png" width="140" alt="FanLite icon"></p>
 
-[![Version](https://img.shields.io/badge/version-0.4.0-blue)]()
+[![Version](https://img.shields.io/badge/version-0.5.0-blue)]()
 [![Platform](https://img.shields.io/badge/macOS-14%2B%20Apple%20Silicon-black)]()
 [![License](https://img.shields.io/badge/license-MIT-green)]()
 
@@ -18,6 +18,9 @@
 - 單獨控制 Fan 0 / Fan 1，或同步控制兩顆
 - 風扇模式：`auto`（macOS 控制）、`quiet`、`full`
 - **80°C 自動增壓**：80°C → 4,500 RPM、88°C → 5,500 RPM、90°C → 6,000 RPM
+- **溫度來源選擇**：可從 38 個感測器中指定來源，或自動取最高溫
+- **風扇曲線編輯器**：控制面板可自訂三組進入溫度與四段 RPM，非法值自動拒絕
+- **歷史溫度圖表**：控制面板保留最近 60 筆（約 2 分鐘）折線圖
 - 溫控獨立每 **2 秒**取樣；降階需低於出場門檻並停留 **45 秒**，避免風扇抖動
 - **登入時自動啟動**：以 LaunchAgent 註冊，重開機登入後自動接回溫控
 - 刷新頻率：**5 / 10 / 30 / 60 秒**，預設 **10 秒**
@@ -34,7 +37,7 @@
 ## 安裝 Release
 
 1. 到 [Releases](https://github.com/boday/fanlite/releases) 下載
-   `FanLite-v0.4.0-macos-arm64.dmg`。
+   `FanLite-v0.5.0-macos-arm64.dmg`。
 2. 打開 DMG，把 `FanLite.app` 拖到 `Applications`。
 3. 開啟 FanLite，選單列會出現 `🌡 68°C | 3000/3000 RPM`。
 4. 點選單列的 FanLite →「開啟控制面板…」，即可用滑桿調整兩顆風扇。
@@ -169,6 +172,8 @@ fanlite/
 │   └── test.sh               # 建置、讀取與政策驗證
 ├── docs/fan-strategy.md     # 風扇調配建議
 ├── docs/auto-start.md       # 開機自動啟動策略
+├── docs/iteration-v050-plan.md # 5W2H、方案與 DoD
+├── audits/issue-1/          # 三輪巡檢與逐項驗收證據
 ├── docs/releases/           # release notes
 ├── CHANGELOG.md
 ├── THIRD_PARTY_NOTICES.md
@@ -187,12 +192,15 @@ fanlite/
 ## Roadmap
 
 - [x] 自訂 App icon
-- [ ] Apple notarization
+- [ ] Apple notarization（BLOCKED：需 Developer ID 與 Apple 帳號）
 - [x] 登入時自動啟動選項
-- [ ] 可選擇顯示的溫度感測器
-- [ ] 風扇曲線編輯器
-- [ ] 歷史溫度圖表
-- [ ] 支援 Intel Mac 的唯讀模式
+- [x] 可選擇顯示的溫度感測器
+- [x] 風扇曲線編輯器
+- [x] 歷史溫度圖表
+- [ ] 支援 Intel Mac 的唯讀模式（BLOCKED：需 Intel 硬體）
+
+迭代細節：v0.5.0 完整方案與 DoD 見 [docs/iteration-v050-plan.md](docs/iteration-v050-plan.md)，
+追蹤議題見 [Issue #1](https://github.com/boday/fanlite/issues/1)。
 
 ## 授權
 

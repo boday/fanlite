@@ -1,0 +1,38 @@
+# QMD 索引與檢索驗證（2026-11-24）
+
+$ qmd collection add .../docs --name fanlite --pattern "**/*.md"
+Indexed: 9 new, 0 updated, 0 unchanged, 0 removed
+✓ Collection fanlite created successfully
+
+$ qmd update
+Collection: /Users/boday/工作/GitLab/MitdubOperations/docs (**/*.md)
+
+Indexed: 0 new, 0 updated, 33 unchanged, 0 removed
+
+[2/2] fanlite (**/*.md)
+Collection: /Users/boday/worktrees/fanlite-v050-issue1/docs (**/*.md)
+
+Indexed: 0 new, 0 updated, 9 unchanged, 0 removed
+
+✓ All collections updated.
+
+$ qmd embed -c fanlite
+✓ All content hashes already have embeddings.
+
+$ qmd search "風扇曲線 launchd bootout" -c fanlite
+qmd://fanlite/releases/v0.5.0.md:30 #e69d4b
+Title: FanLite v0.5.0 — 迭代四缺口
+Score:  89%
+
+@@ -29,4 @@ (28 before, 51 after)
+  狀態列、控制面板與溫控同步使用選擇結果。
+- **風扇曲線編輯器**：控制面板可編輯暖／高／臨界進入溫度與四段 RPM，
+  以 JSON 存 UserDefaults；無效曲線（溫度倒掛或 RPM 遞減）拒絕套用與回退預設。
+- **歷史溫度圖表**：60 筆 ring buffer（2 秒取樣約 2 分鐘）折線圖。
+
+
+qmd://fanlite/releases/v0.4.0.md:90 #f2960f
+Title: FanLite v0.4.0 — 登入自動啟動與溫控穩定化
+Score:  85%
+
+備註：CLI 版本不支援 AGENTS.md 所稱 qmd --index boday update；已用等價的 qmd collection add / update / embed / search 完成，collection 指向本案 worktree 的 docs/。

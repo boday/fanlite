@@ -2,6 +2,32 @@
 
 本專案遵循 [Semantic Versioning](https://semver.org/lang/zh-TW/)。
 
+## [0.5.0] - 2026-11-24
+
+### Added
+
+- 溫度來源選擇：選單列「溫度來源」可指定任一感測器（本機 38 個），
+  或維持「自動（最高溫）」；狀態列、控制面板與溫控同步使用該來源
+- 風扇曲線編輯器：控制面板可編輯三組進入溫度與四段 RPM，
+  以 JSON 存於 UserDefaults；非法曲線（溫度倒掛／RPM 遞減）拒絕套用
+- 歷史溫度圖表：控制面板繪製最近 60 筆（2 秒取樣約 2 分鐘）折線圖
+- CI：`test.yml`（push／PR 皆執行版本防呆＋Linux swiftc 政策測試）
+  與 `main-push-guardrail.yml`（直接推送 main 自動 revert 並開 Issue）
+- `VERSION` 單一版號來源；`scripts/check_version.py` 防呆檢查
+
+### Changed
+
+- `ThermalPolicy` 改為讀取可持久化 `ThermalCurve`，`selfTest()` 抽成
+  `ThermalPolicyTests.swift`，macOS App 與 Linux CI 共用同一份測試
+- `build.sh`／`package.sh`／`test.sh` 不再硬編碼版號，統一讀 `VERSION`
+
+### Verified
+
+- 政策測試 29/29 PASS（含自訂曲線與非法曲線回退）
+- Linux 模式 `swiftc` 編譯並執行政策測試 PASS
+- 38 個感測器列舉成功；`--once`／`--curve-status`／login item CLI 正常
+- 三輪交叉巡檢與 13 項 DoD 逐項驗收，見 `audits/issue-1/`
+
 ## [0.4.0] - 2026-11-06
 
 ### Added
@@ -92,3 +118,4 @@
 [0.2.0]: https://github.com/boday/fanlite/releases/tag/v0.2.0
 [0.3.0]: https://github.com/boday/fanlite/releases/tag/v0.3.0
 [0.4.0]: https://github.com/boday/fanlite/releases/tag/v0.4.0
+[0.5.0]: https://github.com/boday/fanlite/releases/tag/v0.5.0

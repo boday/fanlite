@@ -1,0 +1,41 @@
+# FanLite 可攜式驗證閘門（Issue #1 / DoD #4、#5、#6）
+#
+# AppKit 相關驗證留在 macOS 的 scripts/test.sh；本 workflow 在 ubuntu-latest
+# 編譯純 Foundation 的 ThermalPolicy + ThermalPolicyTests，確保政策邏輯
+# 在 PR 與 main push 都會被執行，且不依賴 SMC 硬體。
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  policy-and-version:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Swift toolchain
+        run: swift --version
+
+      - name: Version single-source guard
+        run: python3 scripts/check_version.py
+
+      - name: Compile and run thermal policy tests
+        run: |
+          set -euo pipefail
+          swiftc -O Sources/ThermalPolicy.swift \
+            Sources/ThermalPolicyTests.swift \
+            Tests/Linux/main.swift -o /tmp/fanlite-policy-test
+          /tmp/fanlite-policy-test
+
+      - name: Workflow YAML and whitespace guard
+        run: |
+          python3 -c "import yaml; [yaml.safe_load(open(p)) for p in ['.github/workflows/test.yml', '.github/workflows/main-push-guardrail.yml']]; print('YAML OK')"
+          git diff --check

@@ -65,6 +65,20 @@ APP="$HOME/Applications/FanLite.app"
 "$APP/Contents/MacOS/FanLite" --login-item-status
 ```
 
+## 升級 App（重要）
+
+在 launchd job 仍 loaded 時直接替換 App bundle，會讓 job 快取的 cdhash 與新執行檔不符，
+出現 `state = not running` / `job state = spawn failed`。即使 `codesign -vvv --deep --strict`
+顯示 valid、binary 直接執行正常，也必須依下列順序升級：
+
+```bash
+launchctl bootout gui/$(id -u)/io.github.boday.fanlite
+# 替換 ~/Applications/FanLite.app
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/io.github.boday.fanlite.plist
+```
+
+v0.5.0 實機升級已遇到並以此流程修復，證據見 `audits/issue-1/round-3-ops.md`。
+
 ## 驗證方式
 
 ```bash

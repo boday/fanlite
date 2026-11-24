@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-VERSION="${VERSION:-0.4.0}"
+VERSION="${VERSION:-$(cat "$ROOT/VERSION")}"
 DIST="${DIST:-$ROOT/dist}"
 APP="$DIST/FanLite.app"
 
