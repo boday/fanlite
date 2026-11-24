@@ -1,0 +1,133 @@
+# main-push-guardrail — GitHub Free 補償控制（模仿 branch protection）。
+#
+# 背景：本 repo 為 PRIVATE＋Free plan，server 端 branch protection/rulesets API
+# 回 403（見 Fanlite Issue #1）。本 workflow 於每次 push 到 main 時檢查區間內每個提交：
+# 有已合併 PR 關聯（API）或訊息引用已合併 PR 編號者放行，否則視為直推，
+# 自動 revert 並自動開 Issue。威脅模型為配合中的 Agent 誤操作，非惡意對手。
+name: main-push-guardrail
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: read
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect direct pushes
+        id: detect
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          REPO='${{ github.repository }}'
+          BEFORE='${{ github.event.before }}'
+          AFTER='${{ github.event.after }}'
+          OUT="$GITHUB_WORKSPACE/guardrail-violations.txt"
+          : > "$OUT"
+          # 自身還原提交豁免（防無限迴圈）
+          if git log -1 --format=%B | grep -q '\[guardrail-revert\]'; then
+            echo "guardrail own revert, skip"
+            exit 0
+          fi
+          if [ "$BEFORE" = "$AFTER" ]; then
+            echo "empty range, skip"
+            exit 0
+          fi
+          if [[ "$BEFORE" == 0000000000000000000000000000000000000000* ]]; then
+            RANGE="$AFTER"
+          else
+            RANGE="$BEFORE..$AFTER"
+          fi
+          while IFS= read -r sha; do
+            [ -n "$sha" ] || continue
+            subject=$(git log -1 --format=%s "$sha")
+            assoc=$(gh api "repos/$REPO/commits/$sha/pulls" \
+              --jq '[.[] | select(.merged_at != null)] | length')
+            if [ "${assoc:-0}" -gt 0 ]; then
+              echo "PASS(api) $sha $subject"
+              continue
+            fi
+            if [[ "$subject" =~ \(#([0-9]+)\)$ ]]; then
+              prnum="${BASH_REMATCH[1]}"
+              merged=$(gh pr view "$prnum" --repo "$REPO" --json mergedAt \
+                --jq '.mergedAt // empty' 2>/dev/null || true)
+              if [ -n "$merged" ]; then
+                echo "PASS(msg) $sha PR#$prnum"
+                continue
+              fi
+            fi
+            echo "VIOLATION $sha $subject"
+            echo "$sha" >> "$OUT"
+          done < <(git rev-list "$RANGE" --reverse)
+          count=$(wc -l < "$OUT" | tr -d ' ')
+          echo "violations=$count" >> "$GITHUB_OUTPUT"
+
+      - name: Revert violations
+        id: revert
+        if: steps.detect.outputs.violations != '0'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          OUT="$GITHUB_WORKSPACE/guardrail-violations.txt"
+          mapfile -t SHAS < "$OUT"
+          git config user.name "main-guardrail[bot]"
+          git config user.email "main-guardrail[bot]@users.noreply.github.com"
+          ORDERED=()
+          for (( i=${#SHAS[@]}-1; i>=0; i-- )); do
+            ORDERED+=("${SHAS[$i]}")
+          done
+          if git revert --no-commit "${ORDERED[@]}"; then
+            git commit -m "[guardrail-revert] revert direct push to main (${#SHAS[@]} commits)
+
+          Violating commits: ${SHAS[*]}
+          Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          All changes must go through Pull Request (see fanlite Issue #1)."
+            git push origin HEAD:main
+            echo "reverted=1" >> "$GITHUB_OUTPUT"
+          else
+            git revert --abort || true
+            echo "reverted=0" >> "$GITHUB_OUTPUT"
+            echo "revert conflict, escalate via issue only"
+          fi
+
+      - name: File issue
+        if: steps.detect.outputs.violations != '0'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          OUT="$GITHUB_WORKSPACE/guardrail-violations.txt"
+          count=$(wc -l < "$OUT" | tr -d ' ')
+          reverted="${{ steps.revert.outputs.reverted }}"
+          {
+            echo "## guardrail：偵測到直接推送 main（$count 筆）"
+            echo
+            echo "- repo：${{ github.repository }}，actor：${{ github.actor }}"
+            echo "- run：${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            echo "- 違規提交："
+            while IFS= read -r sha; do
+              [ -n "$sha" ] || continue
+              echo "  - $sha $(git log -1 --format=%s "$sha")"
+            done < "$OUT"
+            echo
+            if [ "$reverted" = "1" ]; then
+              echo "處置：已自動 revert（含 \`[guardrail-revert]\` 標記）。請走 Pull Request 重新提交。"
+            else
+              echo "處置：自動 revert 發生衝突，**未推送**，需人工處理後再走 Pull Request。"
+            fi
+            echo
+            echo "Refs #128"
+          } > /tmp/guardrail-body.md
+          gh issue create --title "[guardrail] 直接推送 main 已處置（$count 筆）" \
+            --body-file /tmp/guardrail-body.md --label bug

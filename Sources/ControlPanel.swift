@@ -12,26 +12,66 @@ struct FanReading {
 
 struct Reading {
     var cpuTemp: Double?
+    var sensors: [SensorReading] = []
     var fans: [FanReading]
     var packagePower: Double?
+}
+
+/// 最近 60 筆溫度（2 秒取樣約 2 分鐘）的簡單折線圖。
+private final class HistoryView: NSView {
+    static let capacity = 60
+    private(set) var samples: [Double] = []
+
+    func append(_ value: Double) {
+        samples.append(value)
+        if samples.count > Self.capacity { samples.removeFirst() }
+        needsDisplay = true
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        NSColor.windowBackgroundColor.setFill()
+        dirtyRect.fill()
+        guard samples.count > 1 else { return }
+        let low = min(40, samples.min() ?? 40)
+        let high = max(100, samples.max() ?? 100)
+        let span = max(1, high - low)
+        let path = NSBezierPath()
+        for (index, sample) in samples.enumerated() {
+            let x = bounds.minX + CGFloat(index) / CGFloat(Self.capacity - 1) * bounds.width
+            let y = bounds.minY + CGFloat((sample - low) / span) * bounds.height
+            if index == 0 { path.move(to: NSPoint(x: x, y: y)) }
+            else { path.line(to: NSPoint(x: x, y: y)) }
+        }
+        NSColor.systemOrange.setStroke()
+        path.lineWidth = 2
+        path.stroke()
+    }
 }
 
 final class ControlPanel: NSObject, NSWindowDelegate {
     private let window: NSWindow
     private let tempLabel = NSTextField(labelWithString: "--°C")
+    private let sensorLabel = NSTextField(labelWithString: "溫度來源：最高溫")
     private let detailLabel = NSTextField(labelWithString: "讀取中…")
     private let profileLabel = NSTextField(labelWithString: "風扇模式：--")
+    private let historyView = HistoryView()
     private var fanRows: [(name: NSTextField, rpm: NSTextField, slider: NSSlider)] = []
     private let syncButton = NSButton(checkboxWithTitle: "同步兩顆風扇", target: nil, action: nil)
-    private let autoCheckbox = NSButton(checkboxWithTitle: "80°C 自動增壓（最高 6,000 RPM）", target: nil, action: nil)
+    private let autoCheckbox = NSButton(checkboxWithTitle: "80°C 自動增壓（可編輯曲線）", target: nil, action: nil)
     private let loginCheckbox = NSButton(checkboxWithTitle: "登入時自動啟動 FanLite", target: nil, action: nil)
     private let refreshPopup = NSPopUpButton(frame: .zero, pullsDown: false)
     private let intervalValues: [Double] = [5, 10, 30, 60]
     private var latest: Reading?
+    private var currentCurve = ThermalCurve.default
+    private var curveTempFields: [NSTextField] = []
+    private var curveRPMFields: [NSTextField] = []
+    private let curveMessage = NSTextField(labelWithString: "")
 
     private let onProfile: (String) -> Void
     private let onManual: (Int?, Int) -> Void
     private let onAuto: (Bool) -> Void
+    private let onCurve: (ThermalCurve) -> Void
     private let onLoginItem: (Bool) -> Void
     private let onInterval: (Double) -> Void
     private let onClose: () -> Void
@@ -40,6 +80,7 @@ final class ControlPanel: NSObject, NSWindowDelegate {
         onProfile: @escaping (String) -> Void,
         onManual: @escaping (Int?, Int) -> Void,
         onAuto: @escaping (Bool) -> Void,
+        onCurve: @escaping (ThermalCurve) -> Void,
         onLoginItem: @escaping (Bool) -> Void,
         onInterval: @escaping (Double) -> Void,
         onClose: @escaping () -> Void
@@ -47,11 +88,12 @@ final class ControlPanel: NSObject, NSWindowDelegate {
         self.onProfile = onProfile
         self.onManual = onManual
         self.onAuto = onAuto
+        self.onCurve = onCurve
         self.onLoginItem = onLoginItem
         self.onInterval = onInterval
         self.onClose = onClose
         window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 440, height: 566),
+            contentRect: NSRect(x: 0, y: 0, width: 440, height: 880),
             styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered,
             defer: false
@@ -69,12 +111,22 @@ final class ControlPanel: NSObject, NSWindowDelegate {
         window.makeKeyAndOrderFront(nil)
     }
 
-    func update(reading: Reading, interval: Double, autoEnabled: Bool, launchAtLoginEnabled: Bool) {
+    func update(
+        reading: Reading,
+        interval: Double,
+        autoEnabled: Bool,
+        launchAtLoginEnabled: Bool,
+        temperature: Double?,
+        sensorName: String,
+        curve: ThermalCurve
+    ) {
         latest = reading
         autoCheckbox.state = autoEnabled ? .on : .off
         loginCheckbox.state = launchAtLoginEnabled ? .on : .off
-        let temp = reading.cpuTemp.map { String(format: "%.1f°C", $0) } ?? "--"
+        let temp = temperature.map { String(format: "%.1f°C", $0) } ?? "--"
         tempLabel.stringValue = temp
+        sensorLabel.stringValue = "溫度來源：\(sensorName)"
+        if let temperature { historyView.append(temperature) }
 
         let fans = reading.fans
         let rpmText = fans.map { String(format: "Fan %d  %.0f RPM", $0.index, $0.actualRPM) }
@@ -98,8 +150,23 @@ final class ControlPanel: NSObject, NSWindowDelegate {
             }
         }
 
+        if currentCurve != curve {
+            currentCurve = curve
+            applyCurveToFields(curve)
+        }
         if let idx = intervalValues.firstIndex(where: { abs($0 - interval) < 0.01 }) {
             refreshPopup.selectItem(at: idx)
+        }
+    }
+
+    private func applyCurveToFields(_ curve: ThermalCurve) {
+        let values = [curve.warmEnter, curve.hotEnter, curve.criticalEnter]
+        for (i, field) in curveTempFields.enumerated() where i < values.count {
+            field.stringValue = String(format: "%.0f", values[i])
+        }
+        let rpms = [curve.normalRPM, curve.warmRPM, curve.hotRPM, curve.criticalRPM]
+        for (i, field) in curveRPMFields.enumerated() where i < rpms.count {
+            field.stringValue = String(rpms[i])
         }
     }
 
@@ -111,6 +178,10 @@ final class ControlPanel: NSObject, NSWindowDelegate {
         tempLabel.textColor = .labelColor
         tempLabel.alignment = .center
 
+        sensorLabel.font = .systemFont(ofSize: 11)
+        sensorLabel.textColor = .secondaryLabelColor
+        sensorLabel.alignment = .center
+
         detailLabel.font = .systemFont(ofSize: 12)
         detailLabel.textColor = .secondaryLabelColor
         detailLabel.alignment = .center
@@ -119,6 +190,11 @@ final class ControlPanel: NSObject, NSWindowDelegate {
         profileLabel.font = .systemFont(ofSize: 12, weight: .medium)
         profileLabel.textColor = .secondaryLabelColor
         profileLabel.alignment = .center
+
+        historyView.frame = NSRect(x: 0, y: 0, width: 400, height: 72)
+        NSLayoutConstraint.activate([
+            historyView.heightAnchor.constraint(equalToConstant: 72)
+        ])
 
         let header = NSTextField(labelWithString: "FanLite")
         header.font = .systemFont(ofSize: 22, weight: .semibold)
@@ -129,7 +205,7 @@ final class ControlPanel: NSObject, NSWindowDelegate {
         subtitle.textColor = .secondaryLabelColor
         subtitle.alignment = .center
 
-        var views: [NSView] = [header, subtitle, tempLabel, detailLabel, profileLabel]
+        var views: [NSView] = [header, subtitle, tempLabel, sensorLabel, historyView, detailLabel, profileLabel]
         views.append(separator())
 
         for index in 0..<2 {
@@ -165,6 +241,9 @@ final class ControlPanel: NSObject, NSWindowDelegate {
         loginCheckbox.target = self
         loginCheckbox.action = #selector(loginItemChanged)
         views.append(loginCheckbox)
+
+        views.append(separator())
+        views.append(curveSection())
 
         let auto = makeButton("系統自動", action: #selector(profileAuto))
         let daily = makeButton("日常 3000", action: #selector(profileDaily))
@@ -205,6 +284,55 @@ final class ControlPanel: NSObject, NSWindowDelegate {
             stack.topAnchor.constraint(equalTo: content.topAnchor),
             stack.bottomAnchor.constraint(equalTo: content.bottomAnchor)
         ])
+        applyCurveToFields(currentCurve)
+    }
+
+    private func curveSection() -> NSView {
+        let title = NSTextField(labelWithString: "風扇曲線（進階）")
+        title.font = .systemFont(ofSize: 13, weight: .semibold)
+
+        let header = NSTextField(labelWithString: "進入 °C（暖／高／臨界）")
+        header.font = .systemFont(ofSize: 11)
+        header.textColor = .secondaryLabelColor
+        let temps = NSStackView()
+        temps.orientation = .horizontal
+        temps.distribution = .fillEqually
+        temps.spacing = 6
+        for _ in 0..<3 {
+            let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 80, height: 22))
+            field.font = .monospacedDigitSystemFont(ofSize: 12, weight: .regular)
+            curveTempFields.append(field)
+            temps.addArrangedSubview(field)
+        }
+
+        let rpmHeader = NSTextField(labelWithString: "目標 RPM（日常／暖／高／臨界）")
+        rpmHeader.font = .systemFont(ofSize: 11)
+        rpmHeader.textColor = .secondaryLabelColor
+        let rpms = NSStackView()
+        rpms.orientation = .horizontal
+        rpms.distribution = .fillEqually
+        rpms.spacing = 6
+        for _ in 0..<4 {
+            let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 80, height: 22))
+            field.font = .monospacedDigitSystemFont(ofSize: 12, weight: .regular)
+            curveRPMFields.append(field)
+            rpms.addArrangedSubview(field)
+        }
+
+        let apply = makeButton("套用曲線", action: #selector(applyCurve))
+        let reset = makeButton("重置", action: #selector(resetCurve))
+        let actions = NSStackView(views: [apply, reset])
+        actions.orientation = .horizontal
+        actions.spacing = 6
+        actions.distribution = .fillEqually
+
+        curveMessage.font = .systemFont(ofSize: 11)
+        curveMessage.textColor = .systemRed
+
+        let stack = NSStackView(views: [title, header, temps, rpmHeader, rpms, actions, curveMessage])
+        stack.orientation = .vertical
+        stack.spacing = 6
+        return stack
     }
 
     private func separator() -> NSBox {
@@ -224,6 +352,36 @@ final class ControlPanel: NSObject, NSWindowDelegate {
         button.bezelStyle = .rounded
         button.controlSize = .regular
         return button
+    }
+
+    @objc private func applyCurve() {
+        guard curveTempFields.count == 3, curveRPMFields.count == 4 else { return }
+        let w = Double(curveTempFields[0].stringValue) ?? .nan
+        let h = Double(curveTempFields[1].stringValue) ?? .nan
+        let c = Double(curveTempFields[2].stringValue) ?? .nan
+        let n = Int(curveRPMFields[0].stringValue) ?? -1
+        let wr = Int(curveRPMFields[1].stringValue) ?? -1
+        let hr = Int(curveRPMFields[2].stringValue) ?? -1
+        let cr = Int(curveRPMFields[3].stringValue) ?? -1
+        let candidate = ThermalCurve(
+            warmEnter: w, hotEnter: h, criticalEnter: c,
+            warmExit: min(currentCurve.warmExit, w - 5),
+            hotExit: min(currentCurve.hotExit, h - 5),
+            criticalExit: min(currentCurve.criticalExit, c - 5),
+            normalRPM: n, warmRPM: wr, hotRPM: hr, criticalRPM: cr,
+            minimumDwell: currentCurve.minimumDwell
+        )
+        guard candidate.isValid else {
+            curveMessage.stringValue = "曲線無效：溫度需遞增、RPM 不可遞減"
+            return
+        }
+        curveMessage.stringValue = ""
+        onCurve(candidate)
+    }
+
+    @objc private func resetCurve() {
+        curveMessage.stringValue = ""
+        onCurve(ThermalCurve.default)
     }
 
     @objc private func sliderChanged(_ sender: NSSlider) {
